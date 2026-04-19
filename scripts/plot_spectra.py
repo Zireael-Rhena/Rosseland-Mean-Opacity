@@ -126,7 +126,7 @@ def main() -> None:
     from hydrogen_opacity.config import ModelConfig
     small_cfg = ModelConfig(
         T_min_keV=0.001, T_max_keV=10.0, n_T=12,
-        rho_min=1e-10, rho_max=1e2, n_rho=10,
+        rho_min=1e-10, rho_max=1e-3, n_rho=10,
         n_max=cfg.n_max, x_min=cfg.x_min, x_max=cfg.x_max,
         n_x_base=cfg.n_x_base, root_tol=cfg.root_tol, max_root_iter=cfg.max_root_iter,
     )
