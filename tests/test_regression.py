@@ -5,7 +5,7 @@ Regression tests: κ_R at selected (T, ρ) points must reproduce stored
 reference values to within 1%.
 
 Reference values were generated with:
-  - n_max  = 8
+  - n_max  = 16
   - x_base = 500 pts, x ∈ [0.01, 30]
   - full threshold refinement
   - EOS tol = 1e-10
@@ -46,10 +46,10 @@ def cfg():
 
 
 # Reference values (cm² g⁻¹) generated 2026-04-12
-# Updated 2026-04-12: density-dependent n_cut patch applied.
-# Values at rho >= 1e-3 changed because n_cut suppresses excited H levels.
+# Updated 2026-04-18: n_max raised 8→16; (1e4,1e-7) ref updated (n_cut 8→15, +0.61%).
+# Values at rho >= 1e-3 unchanged (n_cut ≤ 3 there, unaffected by n_max cap).
 _REGRESSION_CASES = [
-    (1.0e4, 1.0e-7, 5.47817488e+01),   # n_cut=8 (unchanged)
+    (1.0e4, 1.0e-7, 5.51157199e+01),   # n_cut=15 (was n_cut=8 with n_max=8)
     (1.0e5, 1.0e-3, 3.04196901e+03),   # n_cut=3 (was 1.11e3)
     (1.0e6, 1.0e0,  7.18403591e+01),   # n_cut=1 (was 2.14)
     (5.0e4, 1.0e-5, 2.01396848e+03),   # n_cut=5 (minor change)
