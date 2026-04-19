@@ -63,7 +63,7 @@ def default_config() -> ModelConfig:
 
     Grid spans:
       T  ∈ [0.0005, 10] keV    (20 points)
-      ρ  ∈ [1e-12, 1e3] g/cm³  (16 points)
+      ρ  ∈ [1e-12, 1e-3] g/cm³  (16 points)
 
     Returns
     -------
@@ -74,9 +74,9 @@ def default_config() -> ModelConfig:
         T_max_keV=10.0,
         n_T=20,
         rho_min=1e-12,      # g cm⁻³
-        rho_max=1e3,        # g cm⁻³
+        rho_max=1e-3,       # g cm⁻³  (formal domain upper bound)
         n_rho=16,
-        n_max=8,            # include n = 1..8 for H levels
+        n_max=16,           # include n = 1..16 for H levels (density cutoff still applies)
         x_min=1e-2,
         x_max=30.0,
         n_x_base=500,
