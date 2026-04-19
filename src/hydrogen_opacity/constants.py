@@ -79,18 +79,18 @@ def load_constants() -> PhysicalConstants:
     """
     h: float = 6.6260755e-27           # erg s
     hbar: float = h / (2.0 * math.pi)
-    k_B: float = 1.380658e-16           # erg K⁻¹
-    c: float = 2.99792458e10            # cm s⁻¹
-    m_e: float = 9.1093897e-28       # g
-    m_p: float = 1.6726231e-24      # g
+    k_B: float = 1.380649e-16          # erg K⁻¹  (NIST CODATA 2018 / 2019 SI exact)
+    c: float = 2.99792458e10           # cm s⁻¹
+    m_e: float = 9.1093897e-28        # g
+    m_p: float = 1.6726231e-24        # g
     m_H: float = m_p + m_e
-    e_cgs: float = 4.80321e-10       # statC
-    sigma_T: float = 6.65246e-25   # cm²
-    ev_to_erg: float = 1.602176634e-12  # erg eV⁻¹
+    e_cgs: float = 4.80320427e-10     # statC  (NIST CODATA 2018)
+    sigma_T: float = 6.65246e-25      # cm²
+    ev_to_erg: float = 1.602176634e-12 # erg eV⁻¹  (exact since 2019 SI)
     chi_H_ev: float = 13.6
     chi_Hminus_ev: float = 0.754
     lambda0_Hminus_micron: float = 1.64  # μm (fit parameter)
-    sigma_SB: float = 5.6705e-5    # erg cm⁻² s⁻¹ K⁻⁴
+    sigma_SB: float = 5.670374419e-5   # erg cm⁻² s⁻¹ K⁻⁴  (NIST CODATA 2018)
 
     return PhysicalConstants(
         k_B=k_B,
