@@ -209,3 +209,4 @@ __marimo__/
 # Project-specific
 figures/
 scripts/diag_stage*.py
+data/
