@@ -2,197 +2,154 @@
 """
 compare_lanl.py
 ===============
-Local comparison utility for LANL/TOPS opacity data.
-
-This script expects pre-downloaded LANL/TOPS data.
-It does NOT fetch any data from the internet.
-
-Usage
------
-    python scripts/compare_lanl.py --lanl-file TOPS_data.npz --our-file kappa_R_grid.npz
-
-Expected LANL data file format
--------------------------------
-The TOPS data file must be a .npz archive containing:
-  'T_grid'   — temperature grid [K]      shape (n_T,)
-  'rho_grid' — density grid [g/cc]       shape (n_rho,)
-  'kappa_R'  — Rosseland mean [cm²/g]    shape (n_T, n_rho)
-
-Data acquisition (not performed here)
---------------------------------------
-LANL/TOPS opacity tables can be downloaded from:
-  https://aphysics2.lanl.gov/apps/opacity
-  (requires registration)
-
-Interpolation
--------------
-The TOPS table is interpolated to the (T, ρ) grid of the local calculation
-using bilinear interpolation in log-log space.
-
-Differences expected
----------------------
-See README.md for a table of excluded physics.  In brief:
-  - H⁻ free-free (excluded here) → our κ_R < LANL in cool/dense regime
-  - Bound-bound lines (excluded here) → large underestimate at T < 2e4 K
-  - Pressure ionization (excluded here) → differences at ρ > 1 g/cc
+Compare our Rosseland-mean opacity against the LANL/TOPS gray-opacity table
+for pure hydrogen.
 """
 
-import argparse
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
+import os, sys
 import numpy as np
 
+os.makedirs("figures", exist_ok=True)
 
-def load_tops_data(path: str) -> dict:
-    """
-    Load a pre-downloaded TOPS/LANL opacity file.
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
-    Parameters
-    ----------
-    path : str
-        Path to .npz file with keys T_grid, rho_grid, kappa_R.
+tops = np.load("data/tops_parsed.npz")
+ours = np.load("data/ours_kR.npz")
 
-    Returns
-    -------
-    dict
-    """
-    if not os.path.exists(path):
-        raise FileNotFoundError(
-            f"LANL data file not found: {path}\n"
-            "Download TOPS data from https://aphysics2.lanl.gov/apps/opacity"
-            " and save in the expected format (see script docstring)."
-        )
-    data = np.load(path, allow_pickle=False)
-    required = {"T_grid", "rho_grid", "kappa_R"}
-    missing = required - set(data.keys())
-    if missing:
-        raise KeyError(f"Missing keys in LANL file: {missing}")
-    return dict(data)
+T_keV     = tops["T_grid"]
+rho_grid  = tops["rho_grid"]
+kR_tops   = tops["kR_tops"]
+kR_ours   = ours["kR_ours"]
+warn_T    = tops["warn_T_keV"]
 
+off_bound = np.isin(T_keV, warn_T)
+reldiff   = (kR_ours - kR_tops) / kR_tops
 
-def interpolate_tops_to_grid(
-    tops: dict,
-    T_grid: np.ndarray,
-    rho_grid: np.ndarray,
-) -> np.ndarray:
-    """
-    Bilinear interpolation of TOPS κ_R onto our (T, ρ) grid in log-log space.
+rho_labels = [r"$\rho=10^{-12}$ g/cc", r"$\rho=10^{-9}$ g/cc",
+              r"$\rho=10^{-6}$ g/cc",  r"$\rho=10^{-3}$ g/cc"]
+colors     = ["steelblue", "darkorange", "green", "crimson"]
 
-    Parameters
-    ----------
-    tops : dict
-        TOPS data with T_grid, rho_grid, kappa_R.
-    T_grid : ndarray   [K]
-    rho_grid : ndarray   [g/cc]
+# ── Numeric summary ────────────────────────────────────────────────────────────
+print("=" * 70)
+print("Stage 3: Comparison summary")
+print("=" * 70)
 
-    Returns
-    -------
-    kappa_R_interp : ndarray shape (n_T, n_rho)
-    """
-    from scipy.interpolate import RegularGridInterpolator
+for j, (rho, label) in enumerate(zip(rho_grid, rho_labels)):
+    if j == 0:
+        valid = ~off_bound
+        print(f"\nrho=1e-12 [valid for T < 0.225 keV only, {valid.sum()} pts]")
+    else:
+        valid = np.ones(len(T_keV), dtype=bool)
+        print(f"\nrho={rho:.0e} ({valid.sum()} pts)")
 
-    T_tops = np.asarray(tops["T_grid"])
-    rho_tops = np.asarray(tops["rho_grid"])
-    kR_tops = np.asarray(tops["kappa_R"])
+    rd  = reldiff[:, j][valid]
+    kRT = kR_tops[:, j][valid]
+    kRO = kR_ours[:, j][valid]
+    Tv  = T_keV[valid]
 
-    # Log-log interpolation
-    log_T_tops = np.log10(T_tops)
-    log_rho_tops = np.log10(rho_tops)
-    log_kR_tops = np.log10(np.maximum(kR_tops, 1e-100))
+    print(f"  rel-diff range  : [{rd.min():+.3f}, {rd.max():+.3f}]")
+    print(f"  |rd| < 10%: {(np.abs(rd)<0.10).sum()}/{len(rd)} pts")
+    print(f"  |rd| < 50%: {(np.abs(rd)<0.50).sum()}/{len(rd)} pts")
+    worst = np.argsort(np.abs(rd))[-3:][::-1]
+    print(f"  Worst 3:")
+    for ii in worst:
+        print(f"    T={Tv[ii]:.4e} keV  ours={kRO[ii]:.3e}  TOPS={kRT[ii]:.3e}  rd={rd[ii]:+.3f}")
 
-    interp = RegularGridInterpolator(
-        (log_T_tops, log_rho_tops),
-        log_kR_tops,
-        method="linear",
-        bounds_error=False,
-        fill_value=None,
-    )
+# ── Figure 1: kappa_R(T) ──────────────────────────────────────────────────────
+fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+axes = axes.flatten()
 
-    log_T_our = np.log10(T_grid)
-    log_rho_our = np.log10(rho_grid)
-    T_mesh, rho_mesh = np.meshgrid(log_T_our, log_rho_our, indexing="ij")
-    pts = np.column_stack([T_mesh.ravel(), rho_mesh.ravel()])
-    log_kR_interp = interp(pts).reshape(len(T_grid), len(rho_grid))
-    return 10.0 ** log_kR_interp
+for j, (ax, rho, label, color) in enumerate(zip(axes, rho_grid, rho_labels, colors)):
+    kRT = kR_tops[:, j]
+    kRO = kR_ours[:, j]
+    if j == 0:
+        valid = ~off_bound
+        ax.semilogy(T_keV[valid],  kRO[valid],  "-",  color=color, lw=2,   label="Our code")
+        ax.semilogy(T_keV[valid],  kRT[valid],  "--", color="k",   lw=1.5, label="TOPS (exact ρ)")
+        ax.semilogy(T_keV[~valid], kRO[~valid], "-",  color=color, lw=2,   alpha=0.3)
+        ax.semilogy(T_keV[~valid], kRT[~valid], ":",  color="gray",lw=1.5,
+                    label=r"TOPS (subst. ρ, T≥0.225 keV)")
+        ax.axvline(warn_T[0], color="gray", ls="--", lw=0.8)
+    else:
+        ax.semilogy(T_keV, kRO, "-",  color=color, lw=2,   label="Our code")
+        ax.semilogy(T_keV, kRT, "--", color="k",   lw=1.5, label="TOPS")
+    ax.set_xlabel(r"$T$ [keV]", fontsize=10)
+    ax.set_ylabel(r"$\kappa_R$ [cm² g$^{-1}$]", fontsize=10)
+    ax.set_title(label, fontsize=11)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3, which="both")
+    ax.set_xscale("log")
 
+fig.suptitle("Rosseland-Mean Opacity: Our Code vs LANL/TOPS — Pure H LTE", fontsize=12)
+fig.tight_layout()
+fig.savefig("figures/comparison_kR.png", dpi=150)
+plt.close(fig)
+print("\nSaved: figures/comparison_kR.png")
 
-def compare(our_file: str, lanl_file: str, output_dir: str, save_figs: bool) -> None:
-    """
-    Load both datasets, interpolate TOPS to our grid, and report differences.
-    """
-    from hydrogen_opacity.io_utils import load_grid_from_npz
+# ── Figure 2: relative difference ─────────────────────────────────────────────
+fig, ax = plt.subplots(figsize=(10, 6))
 
-    our = load_grid_from_npz(our_file)
-    tops = load_tops_data(lanl_file)
+for j, (rho, label, color) in enumerate(zip(rho_grid, rho_labels, colors)):
+    rd = reldiff[:, j]
+    if j == 0:
+        valid = ~off_bound
+        ax.semilogx(T_keV[valid], rd[valid], "-o", color=color, lw=1.5, ms=3,
+                    label=label + " (exact ρ)")
+        ax.semilogx(T_keV[~valid], rd[~valid], "x", color=color, ms=5, alpha=0.45,
+                    label=label + r" (subst. ρ)")
+    else:
+        ax.semilogx(T_keV, rd, "-o", color=color, lw=1.5, ms=3, label=label)
 
-    T_grid = our["T_grid"]
-    rho_grid = our["rho_grid"]
-    kR_our = our["kappa_R"]
+ax.axhline(0,    color="k", lw=0.8)
+ax.axhline( 0.1, color="k", lw=0.5, ls="--", alpha=0.4)
+ax.axhline(-0.1, color="k", lw=0.5, ls="--", alpha=0.4)
+ax.axvline(warn_T[0], color="gray", lw=0.8, ls="--", alpha=0.7,
+           label="off-bound boundary (T=0.225 keV)")
+ax.set_xlabel(r"$T$ [keV]", fontsize=12)
+ax.set_ylabel(r"$(\kappa^{\rm ours} - \kappa^{\rm TOPS})\,/\,\kappa^{\rm TOPS}$", fontsize=12)
+ax.set_title("Relative Difference: Our Code vs LANL/TOPS — Pure H LTE", fontsize=12)
+ax.legend(fontsize=8, ncol=2, loc="lower left")
+ax.grid(True, alpha=0.3, which="both")
+ax.set_ylim(-1.05, 0.25)
+ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+fig.tight_layout()
+fig.savefig("figures/comparison_reldiff.png", dpi=150)
+plt.close(fig)
+print("Saved: figures/comparison_reldiff.png")
 
-    kR_lanl = interpolate_tops_to_grid(tops, T_grid, rho_grid)
+# ── Figure 3: cold-T zoom ─────────────────────────────────────────────────────
+cold = T_keV <= 0.05
+fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
-    ratio = kR_our / np.maximum(kR_lanl, 1e-100)
-    frac_diff = (kR_our - kR_lanl) / np.maximum(kR_lanl, 1e-100)
+ax = axes[0]
+for j, (rho, label, color) in enumerate(zip(rho_grid, rho_labels, colors)):
+    ax.semilogy(T_keV[cold], kR_ours[cold, j], "-",  color=color, lw=2,   label=f"Ours {label}")
+    ax.semilogy(T_keV[cold], kR_tops[cold, j], "--", color=color, lw=1.5, alpha=0.7,
+                label=f"TOPS {label}")
+ax.set_xlabel(r"$T$ [keV]", fontsize=11)
+ax.set_ylabel(r"$\kappa_R$ [cm² g$^{-1}$]", fontsize=11)
+ax.set_title("Cold-T regime (T ≤ 0.05 keV)", fontsize=11)
+ax.legend(fontsize=6, ncol=2)
+ax.grid(True, alpha=0.3, which="both")
+ax.set_xscale("log")
 
-    print("Comparison statistics (our / LANL):")
-    print(f"  Median ratio : {np.nanmedian(ratio):.3f}")
-    print(f"  Mean   ratio : {np.nanmean(ratio):.3f}")
-    print(f"  Max    ratio : {np.nanmax(ratio):.3f}")
-    print(f"  Min    ratio : {np.nanmin(ratio):.3f}")
-    print(f"  Frac diff > 10% : {(np.abs(frac_diff) > 0.1).sum()} / {ratio.size}")
-
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-        T_mesh, rho_mesh = np.meshgrid(T_grid, rho_grid, indexing="ij")
-
-        for ax, data, title in [
-            (axes[0], np.log10(np.maximum(kR_our, 1e-100)), "Our code  log₁₀ κ_R"),
-            (axes[1], np.log10(ratio), "Ratio  log₁₀(ours / LANL)"),
-        ]:
-            cf = ax.contourf(np.log10(T_mesh), np.log10(rho_mesh), data, 20, cmap="plasma")
-            plt.colorbar(cf, ax=ax)
-            ax.set_xlabel("log₁₀ T [K]")
-            ax.set_ylabel("log₁₀ ρ [g/cc]")
-            ax.set_title(title)
-
-        fig.tight_layout()
-        if save_figs:
-            os.makedirs(output_dir, exist_ok=True)
-            path = os.path.join(output_dir, "lanl_comparison.png")
-            fig.savefig(path, dpi=150)
-            print(f"Saved: {path}")
-        else:
-            plt.show()
-        plt.close(fig)
-    except ImportError:
-        print("matplotlib not available — skipping plot.")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Compare local κ_R against pre-downloaded LANL/TOPS data."
-    )
-    parser.add_argument(
-        "--our-file", default="kappa_R_grid.npz",
-        help="Path to our opacity grid .npz file."
-    )
-    parser.add_argument(
-        "--lanl-file", required=True,
-        help="Path to pre-downloaded LANL/TOPS .npz file."
-    )
-    parser.add_argument("--save", action="store_true", help="Save figures.")
-    parser.add_argument("--output-dir", default="figures")
-    args = parser.parse_args()
-
-    compare(args.our_file, args.lanl_file, args.output_dir, args.save)
-
-
-if __name__ == "__main__":
-    main()
+ax = axes[1]
+for j, (rho, label, color) in enumerate(zip(rho_grid, rho_labels, colors)):
+    ax.semilogx(T_keV[cold], reldiff[cold, j], "-o", color=color, lw=1.5, ms=4, label=label)
+ax.axhline(0, color="k", lw=0.8)
+ax.axhline( 0.1, color="k", lw=0.5, ls="--", alpha=0.4)
+ax.axhline(-0.1, color="k", lw=0.5, ls="--", alpha=0.4)
+ax.set_xlabel(r"$T$ [keV]", fontsize=11)
+ax.set_ylabel("Relative difference", fontsize=11)
+ax.set_title("Relative difference, cold regime", fontsize=11)
+ax.legend(fontsize=8)
+ax.grid(True, alpha=0.3, which="both")
+ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+fig.suptitle("Cold-T Comparison: Our Code vs LANL/TOPS", fontsize=12)
+fig.tight_layout()
+fig.savefig("figures/comparison_coldT.png", dpi=150)
+plt.close(fig)
+print("Saved: figures/comparison_coldT.png")
