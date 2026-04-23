@@ -144,7 +144,7 @@ def run_opacity_grid(
             comp = monochromatic_opacity(x, state, const)
             kappa_R[i, j] = rosseland_mean_from_spectrum(x, comp.kappa_total)
             # Store mean component values (simple average over x for bookkeeping)
-            kappa_es_mean[i, j] = comp.kappa_es[0]  # grey: same everywhere
+            kappa_es_mean[i, j] = float(np.mean(comp.kappa_es))
             kappa_ff_mean[i, j] = float(np.mean(comp.kappa_ff))
             kappa_bf_H_mean[i, j] = float(np.mean(comp.kappa_bf_H))
             kappa_bf_Hm_mean[i, j] = float(np.mean(comp.kappa_bf_Hminus))
