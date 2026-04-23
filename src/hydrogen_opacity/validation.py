@@ -168,6 +168,7 @@ def check_opacity_nonnegative(comp: OpacityComponents) -> None:
     assert np.all(comp.kappa_ff >= 0.0), "kappa_ff has negative values"
     assert np.all(comp.kappa_bf_H >= 0.0), "kappa_bf_H has negative values"
     assert np.all(comp.kappa_bf_Hminus >= 0.0), "kappa_bf_Hminus has negative values"
+    assert np.all(comp.kappa_ff_Hminus >= 0.0), "kappa_ff_Hminus has negative values"
     assert np.all(comp.kappa_total > 0.0), "kappa_total has non-positive values"
 
 
