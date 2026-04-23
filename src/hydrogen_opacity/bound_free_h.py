@@ -31,20 +31,26 @@ def sigma_bf_hydrogenic_shell(
     T: float,
     n: int,
     const: PhysicalConstants,
+    n_max_phys: float | None = None,
 ) -> float | np.ndarray:
     """
     Hydrogenic bound-free cross-section for principal quantum number n.
 
     σ_{n,bf}(ν) = n⁻⁵ · (8π / 3√3) · (m_e e_cgs¹⁰) / (c ℏ³ (hν)³) · g_bf
 
-    Returns 0 where hν < χ_n = 13.6 eV / n².
+    The ionization threshold uses the level-dissolution-lowered energy:
+        χ_n_eff = 13.6 (1/n² − 1/n_max_phys²) eV     (if n_max_phys is given)
+    If n ≥ n_max_phys the shell is dissolved (chi_n_eff ≤ 0): returns 0.
+    If n_max_phys is None the bare hydrogenic threshold 13.6/n² eV is used.
 
     Parameters
     ----------
-    nu : float or ndarray  [Hz]
-    T  : float             [K]  (passed to g_bf; unused in baseline g_bf = 1)
-    n  : int               principal quantum number
-    const : PhysicalConstants
+    nu       : float or ndarray  [Hz]
+    T        : float             [K]  (passed to g_bf; unused in baseline g_bf = 1)
+    n        : int               principal quantum number
+    const    : PhysicalConstants
+    n_max_phys : float or None
+        Continuous density-dependent effective n_max for ionization-energy lowering.
 
     Returns
     -------
@@ -58,8 +64,15 @@ def sigma_bf_hydrogenic_shell(
     scalar = np.ndim(nu) == 0
     nu = np.atleast_1d(np.asarray(nu, dtype=float))
 
-    # Ionization threshold energy for shell n
-    chi_n_erg: float = const.chi_H_ev * const.ev_to_erg / (n * n)
+    # Ionization threshold with optional level-dissolution lowering
+    if n_max_phys is not None:
+        chi_n_eff_ev: float = const.chi_H_ev * (1.0 / (n * n) - 1.0 / (n_max_phys * n_max_phys))
+    else:
+        chi_n_eff_ev = const.chi_H_ev / (n * n)
+
+    chi_n_erg: float = chi_n_eff_ev * const.ev_to_erg
+    if chi_n_erg <= 0.0:
+        return float(0.0) if scalar else np.zeros_like(nu)
     nu_threshold: float = chi_n_erg / const.h  # threshold frequency
 
     # Hydrogenic prefactor:
@@ -93,6 +106,7 @@ def alpha_bf_H_true(
     T: float,
     level_populations: np.ndarray,
     const: PhysicalConstants,
+    n_max_phys: float | None = None,
 ) -> float | np.ndarray:
     """
     True (stimulated-emission NOT yet applied) bound-free absorption coefficient
@@ -107,6 +121,8 @@ def alpha_bf_H_true(
     level_populations : ndarray shape (n_max,)
         n_n for n = 1..n_max  [cm⁻³]
     const : PhysicalConstants
+    n_max_phys : float or None
+        Continuous density-dependent n_max for ionization-energy lowering.
 
     Returns
     -------
@@ -120,7 +136,7 @@ def alpha_bf_H_true(
         nn = level_populations[n - 1]
         if nn == 0.0:
             continue
-        alpha += nn * sigma_bf_hydrogenic_shell(nu, T, n, const)
+        alpha += nn * sigma_bf_hydrogenic_shell(nu, T, n, const, n_max_phys=n_max_phys)
     return float(alpha[0]) if scalar else alpha
 
 
@@ -130,6 +146,7 @@ def kappa_bf_H_net(
     rho: float,
     level_populations: np.ndarray,
     const: PhysicalConstants,
+    n_max_phys: float | None = None,
 ) -> float | np.ndarray:
     """
     Net neutral-H bound-free mass opacity (stimulated emission included).
@@ -138,11 +155,13 @@ def kappa_bf_H_net(
 
     Parameters
     ----------
-    nu : float or ndarray  [Hz]
-    T  : float             [K]
-    rho : float            [g cm⁻³]
+    nu    : float or ndarray  [Hz]
+    T     : float             [K]
+    rho   : float             [g cm⁻³]
     level_populations : ndarray  (n_max,)  [cm⁻³]
     const : PhysicalConstants
+    n_max_phys : float or None
+        Continuous density-dependent n_max for ionization-energy lowering.
 
     Returns
     -------
@@ -156,7 +175,7 @@ def kappa_bf_H_net(
     scalar = np.ndim(nu) == 0
     nu = np.atleast_1d(np.asarray(nu, dtype=float))
 
-    alpha_true = alpha_bf_H_true(nu, T, level_populations, const)
+    alpha_true = alpha_bf_H_true(nu, T, level_populations, const, n_max_phys=n_max_phys)
     x = const.h * nu / (const.k_B * T)
     stim = -np.expm1(-x)   # 1 − e^{−x}
 
