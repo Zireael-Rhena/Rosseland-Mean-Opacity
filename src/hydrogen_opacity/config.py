@@ -7,7 +7,46 @@ All temperature ranges are specified in keV and converted to K by grids.py.
 Density ranges are in g cm⁻³.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class ModelOptions:
+    """
+    Runtime physics toggles for ablation studies.
+
+    All defaults match the production (fully-upgraded) configuration.
+    Set individual flags to False/alternate to isolate physics contributions.
+
+    Attributes
+    ----------
+    use_kn : bool
+        Use Klein–Nishina electron scattering (True) or Thomson (False).
+    use_ff_hminus : bool
+        Include H⁻ free-free opacity (John 1988).
+    lowering_mode : str
+        Ionization-energy lowering prescription for the Saha equation.
+        One of:
+          "none"            — χ_H,eff = 13.6 eV  (no lowering)
+          "full"            — χ_H,eff = 13.6(1 − 1/n_max_phys²)  (default)
+          "capped_1eV"      — Δχ = min(13.6/n_max_phys², 1.0) eV; χ_H,eff = 13.6 − Δχ
+          "capped"          — Δχ = min(13.6/n_max_phys², delta_chi_max_ev); sweepable cap
+          "gated_nmax_gt_4" — full lowering only when n_max_phys > 4, else no lowering
+        Bound-free threshold lowering via n_max_phys is active for all modes
+        except "none".
+    delta_chi_max_ev : float
+        Maximum ionization-energy lowering [eV] used only when lowering_mode="capped".
+        Ignored for all other modes.
+    """
+    use_kn: bool = True
+    use_ff_hminus: bool = True
+    lowering_mode: str = "full"
+    delta_chi_max_ev: float = 1.0   # cap on Δχ used only when lowering_mode="capped"
+
+
+def production_opts() -> ModelOptions:
+    """All physics on — the verified production configuration."""
+    return ModelOptions()
 
 
 @dataclass(frozen=True)
