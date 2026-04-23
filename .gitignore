@@ -216,3 +216,4 @@ ablation_compare.py
 cap_sweep_analysis.py
 lowering_domain_compare.py
 lowering_eos_compare.py
+scripts/slides_benchmark_figures.py
