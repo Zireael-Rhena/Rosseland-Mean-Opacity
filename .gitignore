@@ -210,3 +210,9 @@ __marimo__/
 figures/
 scripts/diag_stage*.py
 data/
+results/
+final_benchmark_figures.py
+ablation_compare.py
+cap_sweep_analysis.py
+lowering_domain_compare.py
+lowering_eos_compare.py
