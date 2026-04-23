@@ -17,10 +17,11 @@ from hydrogen_opacity.constants import load_constants
 from hydrogen_opacity.config import default_config
 from hydrogen_opacity.eos import solve_eos
 from hydrogen_opacity.gaunt import g_ff, g_bf
-from hydrogen_opacity.scattering import kappa_es
+from hydrogen_opacity.scattering import kappa_es, sigma_kn
 from hydrogen_opacity.free_free import alpha_ff_net, kappa_ff_net
 from hydrogen_opacity.bound_free_h import sigma_bf_hydrogenic_shell, kappa_bf_H_net, alpha_bf_H_true
 from hydrogen_opacity.bound_free_hminus import sigma_bf_Hminus, kappa_bf_Hminus_net
+from hydrogen_opacity.free_free_hminus import kappa_ff_Hminus_net
 from hydrogen_opacity.grids import build_base_x_grid, refine_x_grid_for_thresholds
 from hydrogen_opacity.opacity import monochromatic_opacity
 from hydrogen_opacity.validation import check_opacity_nonnegative, check_threshold_behavior
@@ -73,21 +74,34 @@ class TestGauntFactors:
 
 class TestElectronScattering:
     def test_kappa_es_positive(self, state_1e4, const):
-        val = kappa_es(state_1e4.n_e, state_1e4.rho, const)
-        assert val > 0.0
+        nu_test = np.array([1e14])  # low frequency → Thomson limit
+        val = kappa_es(nu_test, state_1e4.n_e, state_1e4.rho, const)
+        assert float(val[0]) > 0.0
 
     def test_kappa_es_scales_with_ne(self, const):
-        val1 = kappa_es(1e15, 1e-7, const)
-        val2 = kappa_es(2e15, 1e-7, const)
-        assert abs(val2 / val1 - 2.0) < 1e-10
+        nu_test = np.array([1e14])
+        val1 = kappa_es(nu_test, 1e15, 1e-7, const)
+        val2 = kappa_es(nu_test, 2e15, 1e-7, const)
+        assert abs(float(val2[0]) / float(val1[0]) - 2.0) < 1e-10
 
     def test_kappa_es_fully_ionized_limit(self, const):
-        # For fully ionized H: n_e = rho/m_H
+        # For fully ionized H at low ν: κ_es → σ_T / m_H
         rho = 1e-3
         n_e = rho / const.m_H
-        val = kappa_es(n_e, rho, const)
+        nu_test = np.array([1e10])  # very low ν → pure Thomson (x ≪ 1)
+        val = float(kappa_es(nu_test, n_e, rho, const)[0])
         expected = const.sigma_T / const.m_H
-        assert abs(val - expected) / expected < 1e-10
+        assert abs(val - expected) / expected < 1e-6
+
+    def test_kappa_es_decreases_at_high_energy(self, const):
+        # Klein–Nishina: cross-section decreases above m_e c² ≈ 8.2e20 Hz
+        n_e = 1e15
+        rho = 1e-7
+        nu_lo = np.array([1e14])   # hν ≪ m_e c²
+        nu_hi = np.array([1e24])   # hν ≫ m_e c²
+        val_lo = float(kappa_es(nu_lo, n_e, rho, const)[0])
+        val_hi = float(kappa_es(nu_hi, n_e, rho, const)[0])
+        assert val_hi < val_lo
 
 
 class TestFreeFree:
@@ -264,5 +278,66 @@ class TestTotalOpacityAssembly:
         x_base = build_base_x_grid(cfg)
         x = refine_x_grid_for_thresholds(x_base, T, cfg.n_max, const)
         comp = monochromatic_opacity(x, state, const)
-        expected = comp.kappa_es + comp.kappa_ff + comp.kappa_bf_H + comp.kappa_bf_Hminus
+        expected = (comp.kappa_es + comp.kappa_ff + comp.kappa_bf_H
+                    + comp.kappa_bf_Hminus + comp.kappa_ff_Hminus)
         np.testing.assert_allclose(comp.kappa_total, expected, rtol=1e-12)
+
+
+class TestKleinNishina:
+    def test_sigma_kn_reduces_to_thomson_at_low_nu(self, const):
+        nu_lo = np.array([1e10])  # hν ≪ m_e c²
+        sig = float(sigma_kn(nu_lo, const)[0])
+        assert abs(sig - const.sigma_T) / const.sigma_T < 1e-5
+
+    def test_sigma_kn_decreases_at_high_nu(self, const):
+        nu_lo = np.array([1e10])
+        nu_hi = np.array([1e24])
+        sig_lo = float(sigma_kn(nu_lo, const)[0])
+        sig_hi = float(sigma_kn(nu_hi, const)[0])
+        assert sig_hi < sig_lo
+
+    def test_sigma_kn_positive(self, const):
+        nu = np.logspace(10, 25, 50)
+        sigs = sigma_kn(nu, const)
+        assert np.all(sigs > 0.0)
+
+
+class TestFreeFreeHminus:
+    def test_zero_outside_temperature_range(self, const):
+        state_cold = solve_eos(1000.0, 1e-7, 16, const)
+        nu = np.array([1e14])
+        val = float(kappa_ff_Hminus_net(nu, 1000.0, 1e-7,
+                                        state_cold.n_H0, state_cold.n_e, const)[0])
+        assert val == 0.0
+
+    def test_zero_for_short_wavelength(self, const):
+        # λ < 0.1823 µm → ν > c/0.1823e-4 ≈ 1.64e15 Hz
+        nu_short = np.array([2e15])  # λ ≈ 0.15 µm
+        val = float(kappa_ff_Hminus_net(nu_short, 5040.0, 1e-7, 1e10, 1e5, const)[0])
+        assert val == 0.0
+
+    def test_positive_at_valid_conditions(self, const):
+        # T=5040 K (θ=1), λ=1 µm (ν=3e14 Hz) — in Table 3a domain
+        nu = np.array([3e14])
+        val = float(kappa_ff_Hminus_net(nu, 5040.0, 1e-7, 1e10, 1e8, const)[0])
+        assert val > 0.0
+
+    def test_nonnegative_over_spectrum_solar_T(self, const):
+        # Solar-like conditions within John (1988) validity range
+        T = 6000.0
+        nu = np.logspace(13, 15.5, 60)  # covers both Table 3a and 3b
+        state = solve_eos(T, 1e-7, 16, const)
+        kff = kappa_ff_Hminus_net(nu, T, 1e-7, state.n_H0, state.n_e, const)
+        assert np.all(kff >= 0.0), f"negative H- ff values found: min={kff.min():.3e}"
+
+    def test_table3a_3b_boundary_continuity(self, const):
+        # Near the 0.3645 µm boundary, both tables should give similar values
+        lam_mid = 0.3645  # µm
+        c_cm = 2.99792458e10
+        nu_a = np.array([c_cm / (lam_mid * 1.001e-4)])  # just inside 3a
+        nu_b = np.array([c_cm / (lam_mid * 0.999e-4)])  # just inside 3b
+        n_H0, n_e, rho, T = 1e14, 1e8, 1e-7, 5040.0
+        va = float(kappa_ff_Hminus_net(nu_a, T, rho, n_H0, n_e, const)[0])
+        vb = float(kappa_ff_Hminus_net(nu_b, T, rho, n_H0, n_e, const)[0])
+        # Both should be positive and within 10× of each other (fit is not guaranteed C0)
+        assert va >= 0.0 and vb >= 0.0

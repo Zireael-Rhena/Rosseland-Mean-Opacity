@@ -45,14 +45,14 @@ def cfg():
     return default_config()
 
 
-# Reference values (cm² g⁻¹) generated 2026-04-12
-# Updated 2026-04-18: n_max raised 8→16; (1e4,1e-7) ref updated (n_cut 8→15, +0.61%).
-# Values at rho >= 1e-3 unchanged (n_cut ≤ 3 there, unaffected by n_max cap).
+# Reference values (cm² g⁻¹) generated 2026-04-21
+# Physics: KN scattering, H⁻ ff (John 1988), new n_max formula,
+#          ionization lowering via float n_max_phys (not integer n_cut)
 _REGRESSION_CASES = [
-    (1.0e4, 1.0e-7, 5.51157199e+01),   # n_cut=15 (was n_cut=8 with n_max=8)
-    (1.0e5, 1.0e-3, 3.04196901e+03),   # n_cut=3 (was 1.11e3)
-    (1.0e6, 1.0e0,  7.18403591e+01),   # n_cut=1 (was 2.14)
-    (5.0e4, 1.0e-5, 2.01396848e+03),   # n_cut=5 (minor change)
+    (1.0e4, 1.0e-7, 6.57843451e+01),   # n_cut=15; KN negligible; H- ff dominant
+    (1.0e5, 1.0e-3, 2.52158104e+03),   # n_cut=2, n_max_phys≈2.04; KN ~20% at high ν
+    (1.0e6, 1.0e0,  5.83780307e+01),   # n_cut=1; KN dominant correction ~21%
+    (5.0e4, 1.0e-5, 1.97259640e+03),   # n_cut=7; mixed correction
 ]
 
 
