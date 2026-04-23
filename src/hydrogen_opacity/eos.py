@@ -17,6 +17,7 @@ from scipy.optimize import brentq
 from dataclasses import dataclass
 
 from .constants import PhysicalConstants
+from .config import ModelOptions
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +52,9 @@ class EOSState:
         U_H(T, rho)  truncated at n_cut_effective  (dimensionless)
     n_cut_effective : int
         Density-dependent effective level cutoff actually used in this solve.
+    n_max_phys_effective : float
+        Continuous float version of the density-dependent n_max, used for
+        ionization-energy lowering (Saha and H bf thresholds).
     """
 
     T: float
@@ -63,6 +67,7 @@ class EOSState:
     level_populations: np.ndarray
     partition_function_H: float
     n_cut_effective: int
+    n_max_phys_effective: float
 
 
 # ---------------------------------------------------------------------------
@@ -97,13 +102,18 @@ def partition_function_H(T: float, n_max: int, const: PhysicalConstants) -> floa
     return U
 
 
-def saha_prefactor_H(T: float, U_H: float, const: PhysicalConstants) -> float:
+def saha_prefactor_H(
+    T: float,
+    U_H: float,
+    const: PhysicalConstants,
+    chi_H_eff_ev: float | None = None,
+) -> float:
     """
     Hydrogen Saha ionization coefficient S_H(T).
 
     n_e n_p / n_{H0} = S_H(T)
 
-    S_H(T) = (2π m_e k_B T / h²)^{3/2}  ·  (2 / U_H)  ·  exp(−χ_H / k_B T)
+    S_H(T) = (2π m_e k_B T / h²)^{3/2}  ·  (2 / U_H)  ·  exp(−χ_H_eff / k_B T)
 
     Parameters
     ----------
@@ -111,6 +121,9 @@ def saha_prefactor_H(T: float, U_H: float, const: PhysicalConstants) -> float:
     U_H : float
         Neutral-H partition function.
     const : PhysicalConstants
+    chi_H_eff_ev : float or None
+        Effective ionization energy [eV] after level-dissolution lowering.
+        If None, uses const.chi_H_ev = 13.6 eV (no lowering).
 
     Returns
     -------
@@ -118,8 +131,9 @@ def saha_prefactor_H(T: float, U_H: float, const: PhysicalConstants) -> float:
     """
     kBT: float = const.k_B * T
     prefactor: float = (2.0 * math.pi * const.m_e * kBT / (const.h ** 2)) ** 1.5
-    chi_H_erg: float = const.chi_H_ev * const.ev_to_erg
-    return prefactor * (2.0 / U_H) * math.exp(-chi_H_erg / kBT)
+    chi_ev = chi_H_eff_ev if chi_H_eff_ev is not None else const.chi_H_ev
+    chi_erg: float = chi_ev * const.ev_to_erg
+    return prefactor * (2.0 / U_H) * math.exp(-chi_erg / kBT)
 
 
 def thermal_de_broglie_e(T: float, const: PhysicalConstants) -> float:
@@ -199,11 +213,11 @@ def effective_nmax_float(rho: float, const: PhysicalConstants) -> float:
     """
     Density-dependent effective maximum principal quantum number (float).
 
-    Conservative proxy for pressure ionization / level dissolution:
+    Proxy for pressure ionization / level dissolution (Hummer–Mihalas style):
 
-        n_max^eff ≈ 100 (n_nuc / 10^12 cm^{-3})^{-1/6}
+        n_max^phys ≈ 12 (n_H / 10^15 cm^{-3})^{-2/15}
 
-    where  n_nuc = rho / m_H.
+    where  n_H = rho / m_H.
 
     Parameters
     ----------
@@ -214,8 +228,8 @@ def effective_nmax_float(rho: float, const: PhysicalConstants) -> float:
     -------
     float  (may be < 1)
     """
-    n_nuc: float = rho / const.m_H
-    return 100.0 * (n_nuc / 1e12) ** (-1.0 / 6.0)
+    n_H: float = rho / const.m_H
+    return 12.0 * (n_H / 1e15) ** (-2.0 / 15.0)
 
 
 def effective_ncut(rho: float, n_max_user: int, const: PhysicalConstants) -> int:
@@ -296,6 +310,7 @@ def solve_eos(
     n_max: int,
     const: PhysicalConstants,
     tol: float = 1e-10,
+    opts: ModelOptions | None = None,
 ) -> EOSState:
     """
     Solve the LTE equation of state for a pure hydrogen gas.
@@ -330,12 +345,34 @@ def solve_eos(
     -------
     EOSState
     """
+    if opts is None:
+        opts = ModelOptions()
     n_H_tot: float = rho / const.m_H
     # Density-dependent level cutoff — applied self-consistently to U_H,
     # the Saha prefactor, the H⁻ equilibrium constant, and level populations.
-    n_cut: int = effective_ncut(rho, n_max, const)
+    n_cut: int = effective_ncut(rho, n_max, const)          # integer: partition fn / level-pop truncation only
+    n_max_phys: float = effective_nmax_float(rho, const)    # float: all ionization-energy lowering
     U_H: float = partition_function_H(T, n_cut, const)
-    S_H: float = saha_prefactor_H(T, U_H, const)
+    mode: str = opts.lowering_mode
+    if mode == "none":
+        chi_H_eff_ev: float = const.chi_H_ev
+    elif mode == "full":
+        chi_H_eff_ev = const.chi_H_ev * (1.0 - 1.0 / (n_max_phys * n_max_phys))
+    elif mode == "capped_1eV":
+        delta_chi = const.chi_H_ev / (n_max_phys * n_max_phys)
+        chi_H_eff_ev = const.chi_H_ev - min(delta_chi, 1.0)
+    elif mode == "capped":
+        delta_chi = const.chi_H_ev / (n_max_phys * n_max_phys)
+        chi_H_eff_ev = const.chi_H_ev - min(delta_chi, opts.delta_chi_max_ev)
+    elif mode == "gated_nmax_gt_4":
+        if n_max_phys > 4.0:
+            chi_H_eff_ev = const.chi_H_ev * (1.0 - 1.0 / (n_max_phys * n_max_phys))
+        else:
+            chi_H_eff_ev = const.chi_H_ev
+    else:
+        raise ValueError(f"Unknown lowering_mode {mode!r}; "
+                         "choose 'none', 'full', 'capped', 'capped_1eV', or 'gated_nmax_gt_4'")
+    S_H: float = saha_prefactor_H(T, U_H, const, chi_H_eff_ev=chi_H_eff_ev)
     K_Hm: float = equilibrium_constant_Hminus(T, U_H, const)
 
     def residual(n_e: float) -> float:
@@ -407,4 +444,5 @@ def solve_eos(
         level_populations=pops,
         partition_function_H=U_H,
         n_cut_effective=n_cut,
+        n_max_phys_effective=n_max_phys,
     )
