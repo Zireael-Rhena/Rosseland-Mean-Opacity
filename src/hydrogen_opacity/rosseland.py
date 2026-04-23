@@ -18,7 +18,7 @@ import numpy as np
 from scipy.integrate import trapezoid
 
 from .constants import PhysicalConstants
-from .config import ModelConfig
+from .config import ModelConfig, ModelOptions
 from .grids import build_base_x_grid, refine_x_grid_for_thresholds
 from .eos import solve_eos
 from .opacity import monochromatic_opacity, OpacityComponents
@@ -109,6 +109,7 @@ def compute_rosseland_mean(
     x: np.ndarray,
     const: PhysicalConstants,
     tol: float = 1e-10,
+    opts: ModelOptions | None = None,
 ) -> float:
     """
     Full pipeline: solve EOS → compute opacity spectrum → integrate Rosseland mean.
@@ -123,11 +124,13 @@ def compute_rosseland_mean(
     const : PhysicalConstants
     tol : float
         EOS root-solver tolerance.
+    opts : ModelOptions or None
+        Physics toggles.  None → production defaults (all on).
 
     Returns
     -------
     kappa_R : float   [cm² g⁻¹]
     """
-    state = solve_eos(T, rho, n_max, const, tol=tol)
-    comp: OpacityComponents = monochromatic_opacity(x, state, const)
+    state = solve_eos(T, rho, n_max, const, tol=tol, opts=opts)
+    comp: OpacityComponents = monochromatic_opacity(x, state, const, opts=opts)
     return rosseland_mean_from_spectrum(x, comp.kappa_total)
