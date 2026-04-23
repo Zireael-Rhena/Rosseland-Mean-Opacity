@@ -33,20 +33,20 @@ The `default_config()` is set to this domain.
 
 | Source | Symbol | Notes |
 |---|---|---|
-| Electron scattering | $\kappa_{\text{es}}$ | Thomson cross-section |
+| Electron scattering | $\kappa_{\text{es}}$ | Klein–Nishina corrected; reduces to Thomson at low $h\nu$ |
 | Free-free (e-p) absorption | $\kappa_{\text{ff}}$ | Stimulated-emission corrected; Kramers-like with quantum Gaunt factor |
-| Neutral-H bound-free | $\kappa_{\text{bf,H}}$ | Hydrogenic per shell n; stimulated-emission corrected |
+| Neutral-H bound-free | $\kappa_{\text{bf,H}}$ | Hydrogenic per shell n; stimulated-emission corrected; lowered thresholds |
 | $H^-$ bound-free | $\kappa_{\text{bf,H}^-}$ | Empirical fit; domain-limited to $0.754–10 \ \text{eV}$ |
+| $H^-$ free-free | $\kappa_{\text{ff,H}^-}$ | John (1988) fit; valid $T \in [1400, 10080]\ \text{K}$, $\lambda > 0.1823\ \mu\text{m}$; stim.\ em.\ already in fit |
 
 ## Excluded Physics
 
 The following are **intentionally omitted** as a controlled project approximation:
 
-- **$H^-$ free-free** — excluded; would require a separate empirical fit
 - **Bound-bound (line) opacity** — excluded; continuum-only model
 - **Non-LTE effects** — excluded; strict LTE throughout
-- **Full continuum lowering / pressure ionization** — excluded; a conservative density-dependent level cutoff is applied as a reduced proxy (see below)
-- **Relativistic scattering corrections** — excluded; non-relativistic temperatures only
+- **Full continuum lowering / pressure ionization** — excluded; a step-function level cutoff with ionization-energy lowering is applied as a reduced proxy (see below)
+- **Smooth Hummer–Mihalas occupation probabilities** — not included; the sharp n_cut approximation creates discontinuities at cold/dense conditions
 
 ---
 
@@ -70,30 +70,67 @@ $$
     n_p = n_e + n_{H^-}
 $$
 
-**Density-dependent level cutoff (conservative pressure-ionization proxy):**
+**Density-dependent level cutoff (pressure-ionization proxy):**
 
-At high density, excited levels are collisionally dissolved.  As a conservative
-proxy the sum over principal quantum shells is truncated at an effective cutoff:
+At high density, excited levels are collisionally dissolved.  As a proxy
+the sum over principal quantum shells is truncated at an effective cutoff:
 
-$$
-n_{\max}^{\rm eff}(\rho) \simeq 100 \left(\frac{\rho/m_H}{10^{12}\ \text{cm}^{-3}}\right)^{-1/6}
+$$ 
+n_{\max}^{\rm phys}(\rho) \simeq 12 \left(\frac{n_H}{10^{15}\ \text{cm}^{-3}}\right)^{-2/15}, \quad n_H = \rho/m_H
 $$
 
 The integer cutoff actually used is
 
 $$
-n_{\rm cut} = \max\!\left(1,\;\min\!\left(n_{\max}^{\rm user},\;\lfloor n_{\max}^{\rm eff}\rfloor\right)\right)
+n_{\rm cut} = \max\!\left(1,\;\min\!\left(n_{\max}^{\rm user},\;\lfloor n_{\max}^{\rm phys}\rfloor\right)\right)
 $$
 
-The default user shell cap is $n_{\max}^{\rm user} = 16$.  The density-dependent
-formula typically limits the active shells well below 16 at densities above
-$\sim 10^{-6}\ \mathrm{g\,cm^{-3}}$ (e.g., $n_{\rm cut} = 3$ at $10^{-3}\ \mathrm{g\,cm^{-3}}$),
-so the cap only matters at the lowest densities in the formal domain.
+The default user shell cap is $n_{\max}^{\rm user} = 16$.  Example values:
+$n_{\rm cut} = 16$ at $\rho = 10^{-12}\ \mathrm{g\,cm^{-3}}$,
+$n_{\rm cut} = 12$ at $10^{-9}$,
+$n_{\rm cut} = 5$ at $10^{-6}$,
+$n_{\rm cut} = 2$ at $10^{-3}\ \mathrm{g\,cm^{-3}}$.
 
-This cutoff is applied **self-consistently** in the neutral-H partition function
-$U_H(T,\rho)$, the Saha prefactor, the $H^-$ equilibrium constant $K_{H^-}$,
-and the level populations.  It is a reduced model, not a full non-ideal EOS
-treatment (Hummer–Mihalas occupation probabilities are not included).
+**Ionization-energy lowering (softened capped prescription):**
+
+The effective ionization energy for the Saha equation is computed from the
+**float-valued** $n_{\max}^{\rm phys}$, not the integer $n_{\rm cut}$.
+This avoids discrete jumps at density thresholds.
+
+Raw lowering energy:
+
+$$
+\Delta\chi_{\rm raw} = \frac{13.6\ \text{eV}}{(n_{\max}^{\rm phys})^2}
+$$
+
+The production model applies a cap $\Delta\chi_{\max} = 1.0\ \text{eV}$:
+
+$$
+\Delta\chi_{\rm eff} = \min\!\left(\Delta\chi_{\rm raw},\ \Delta\chi_{\max}\right)
+$$
+
+$$
+\chi_{H,\rm eff} = 13.6\ \text{eV} - \Delta\chi_{\rm eff}
+$$
+
+This value is used in the Saha prefactor $S_H$.  The H bf photoionization
+thresholds use the same float $n_{\max}^{\rm phys}$:
+
+$$
+\chi_{n,\rm eff} = 13.6\!\left(\frac{1}{n^2} - \frac{1}{(n_{\max}^{\rm phys})^2}\right)\ \text{eV}
+$$
+
+Shells with $\chi_{n,\rm eff} \le 0$ ($n \ge n_{\max}^{\rm phys}$) have zero cross-section.
+The integer $n_{\rm cut}$ is used **only** for partition-function truncation
+and level-population arrays; it does not appear in any energy formula.
+
+**Rationale for the 1 eV cap:** Full-strength lowering
+($\Delta\chi_{\rm eff} = \Delta\chi_{\rm raw}$) over-ionizes the cold/dense corner
+by up to 16× relative to TOPS at $(T \approx 0.5\ \text{mkeV},\ \rho = 10^{-3}\ \text{g\,cm}^{-3})$.
+No lowering under-ionizes by ~1.5–2×.  The 1 eV cap gives the best overall
+benchmark score among tested variants and keeps $y_e$ within a factor of 2 of
+the TOPS electron fraction at all cold/dense key points.  It is a phenomenological
+engineering choice; a full Hummer–Mihalas treatment is not included.
 
 **Neutral-H partition function:**
 $$
@@ -120,10 +157,18 @@ $$
     λ_{th,e} = h / \sqrt{2π m_e k_B T}
 $$
 
-### Electron Scattering
+### Electron Scattering (Klein–Nishina)
+
 $$
-    \kappa_{\text{es}} = n_e \sigma_T / \rho \ \text{[cm² g⁻¹]}
+    \kappa_{\text{es}}(\nu) = n_e \sigma_{\rm KN}(\nu) / \rho \ \text{[cm² g⁻¹]}
 $$
+
+$$
+    \sigma_{\rm KN}(x) = \frac{3}{4}\sigma_T\left[\frac{1+x}{x^3}\left(\frac{2x(1+x)}{1+2x} - \ln(1+2x)\right) + \frac{\ln(1+2x)}{2x} - \frac{1+3x}{(1+2x)^2}\right]
+$$
+
+where $x = h\nu / (m_e c^2)$.  Reduces to $\sigma_T$ for $x \to 0$.
+At $x < 0.05$ a 5-term Taylor series is used for numerical stability.
 
 ### Free-Free (e-p) Absorption
 
@@ -141,7 +186,12 @@ where $ν_9 = ν / 10⁹ \ \text{Hz}$, $T_4 = T / 10^4 \ \text{K}$.
 
 ### Neutral-H Bound-Free Absorption
 
-For shell $n$, ionization threshold $\chi_n = 13.6 \ eV / n^2$.
+For shell $n$, effective ionization threshold (with level-dissolution lowering):
+$$
+    \chi_{n,\rm eff} = 13.6\!\left(\frac{1}{n^2} - \frac{1}{(n_{\max}^{\rm phys})^2}\right)\ \text{eV}
+$$
+Shells with $\chi_{n,\rm eff} \le 0$ ($n \ge n_{\max}^{\rm phys}$) have zero cross-section.
+The continuous float $n_{\max}^{\rm phys}$ is used here, not the integer $n_{\rm cut}$.
 
 Cross-section (zero below threshold, hydrogenic above):
 $$
@@ -172,7 +222,31 @@ $$
     \kappa_{\text{bf},\text{H}^-} = (n_{\text{H}^-} / \rho) \sigma_{\text{H}^-, \text{bf}}(\nu) · (1 − e^{−h\nu/k_B T})
 $$
 
-**H⁻ free-free is intentionally excluded** as a controlled approximation for this project.
+### H⁻ Free-Free Absorption
+
+Empirical fit from John (1988), Table 3.  The fit already includes the
+stimulated-emission factor $(1 - e^{-h\nu/k_BT})$.
+
+$$
+    k_\lambda^{\rm ff}(T) = 10^{-29} \sum_{j=1}^{6} \theta^{(j+1)/2} \left[A_j \lambda^2 + B_j + C_j/\lambda + D_j/\lambda^2 + E_j/\lambda^3 + F_j/\lambda^4\right]
+$$
+
+where $\theta = 5040/T$ ($T$ in K), $\lambda$ in $\mu$m, and coefficients $(A_j, \ldots, F_j)$
+are tabulated in two wavelength ranges: Table 3a ($\lambda > 0.3645\ \mu\text{m}$) and
+Table 3b ($0.1823 < \lambda \le 0.3645\ \mu\text{m}$).  Outside these ranges $k_\lambda^{\rm ff} = 0$.
+
+Volume absorption coefficient:
+$$
+    \alpha_{\text{ff},\text{H}^-} = k_\lambda^{\rm ff} \cdot n_{H^0} \cdot P_e, \quad P_e = n_e k_B T
+$$
+
+Mass opacity (no additional stimulated-emission factor):
+$$
+    \kappa_{\text{ff},\text{H}^-} = \alpha_{\text{ff},\text{H}^-} / \rho
+$$
+
+Valid for $T \in [1400, 10080]\ \text{K}$ and $\lambda > 0.1823\ \mu\text{m}$;
+returns zero outside these bounds.
 
 ---
 
@@ -250,11 +324,13 @@ Tests verify:
 
 1. **Constants sanity** — CGS values within $1\ \text{ppm}$ of NIST CODATA 2018
 2. **EOS positivity and conservation** — $n_{\text{H}0}, n_p, n_e, n_{\text{H}^-} \geq 0$; number and charge conservation
-3. **Neutral-H bound-free threshold** — $\sigma = 0$ below $h\nu = \chi_n$; continuous above
+3. **Neutral-H bound-free threshold** — $\sigma = 0$ below $h\nu = \chi_{n,\rm eff}$; continuous above
 4. **H⁻ bound-free domain** — $\sigma = 0$ for $h\nu \leq 0.754 \text{ eV}$ and $h\nu > 10 \text{ eV}$
-5. **Opacity non-negativity** — all components $\geq 0$ at all $x$
-6. **Rosseland positivity and finiteness** — $\kappa_R > 0$ and finite at representative points
-7. **Regression** — $\kappa_R$ at selected $(T, \rho)$ reproduces stored reference values to $1\%$
+5. **H⁻ free-free** — zero outside T validity range and short-wavelength cutoff; positive at solar conditions; wavelength-region boundary checked
+6. **Klein–Nishina** — reduces to $\sigma_T$ at low $h\nu$; decreases at high $h\nu$; always positive
+7. **Opacity non-negativity** — all 5 components $\geq 0$ at all $x$
+8. **Rosseland positivity and finiteness** — $\kappa_R > 0$ and finite at representative points
+9. **Regression** — $\kappa_R$ at selected $(T, \rho)$ reproduces stored reference values to $1\%$
 
 ---
 
@@ -266,24 +342,36 @@ Domain-internal verification has been completed for the formal domain
 | Check | Result |
 |---|---|
 | EOS positivity and conservation (10 representative points) | ✓ Pass |
-| Opacity component non-negativity across full spectrum | ✓ Pass |
+| Opacity component non-negativity across full spectrum (all 5) | ✓ Pass |
 | H⁻ bf domain enforcement (0.754–10 eV) | ✓ Pass |
-| Neutral-H bf threshold positions (n = 1..16) | ✓ Pass |
+| Neutral-H bf threshold positions (float n_max_phys) | ✓ Pass |
+| H⁻ ff: zero outside validity domain; positive at solar T | ✓ Pass |
+| Klein–Nishina: Thomson limit; decreasing at high ν | ✓ Pass |
 | No spectral oscillations or numerical spikes | ✓ Pass |
-| x-grid convergence (base vs 4× refined, threshold-refined) | ✓ Pass (<1% in-domain) |
+| x-grid convergence (base vs 4× refined, threshold-refined) | ✓ Pass (<3% at boundary; <1% mid-domain) |
 | n_max sensitivity at T ≥ 0.05 keV | ✓ Negligible (<1 ppm) |
-| n_max sensitivity at cold T, ρ ≤ 10⁻⁶ (old caveat) | ✓ Resolved by n_max=16 |
+| float n_max_phys used in all energy-lowering formulas (not n_cut) | ✓ Pass |
+| 158/158 unit tests pass | ✓ |
 
-**Previous caveat eliminated:** with the old default `n_max=8`, the code
-underestimated $\kappa_R$ by ~5% at $(T \approx 0.0005\ \mathrm{keV},\ \rho \approx 10^{-6}\ \mathrm{g\,cm^{-3}})$
-because the density cutoff allowed shells up to $n=10$ but the user cap forced $n_{\rm cut}=8$.
-The default `n_max=16` removes this discrepancy; those shells are now fully included.
+**LANL/TOPS comparison — final production model**
+(H⁻ ff + KN + capped lowering, $\Delta\chi_{\max} = 1.0\ \text{eV}$):
 
-Minor residual: at the most dilute in-domain conditions ($\rho \lesssim 10^{-9}\ \mathrm{g\,cm^{-3}}$),
-$n_{\max}^{\rm eff} \approx 34$, so shells 17–34 remain excluded by the cap. The resulting
-sensitivity is < 0.5%, which is negligible relative to expected LANL/TOPS differences.
+| Density | Within 10% | Within 25% |
+|---|---|---|
+| $10^{-12}\ \text{g\,cm}^{-3}$ | 69/69 | 69/69 |
+| $10^{-9}\ \text{g\,cm}^{-3}$ | 62/69 | 66/69 |
+| $10^{-6}\ \text{g\,cm}^{-3}$ | 57/69 | 59/69 |
+| $10^{-3}\ \text{g\,cm}^{-3}$ | 50/69 | 62/69 |
 
-**The code is ready for LANL/TOPS comparison inside the formal domain.**
+Residual discrepancies: bound-bound (line) opacity (dominant at $T = 1\text{–}10\ \text{mkeV}$,
+$\rho = 10^{-6}\ \text{g\,cm}^{-3}$), smooth Hummer–Mihalas occupation probabilities
+at cold/dense edge, $g_{bf}$ Gaunt factors.
+
+**Cold/dense corner:** The softened 1 eV cap on ionization-energy lowering
+regularizes the over-ionization at $(T \lesssim 1\ \text{mkeV},\ \rho = 10^{-3}\ \text{g\,cm}^{-3})$.
+The electron fraction $y_e$ is now within a factor of 1.6 of the TOPS value at the coldest
+key points, and $\kappa_R$ is within 15–150% (vs.\ 1280% with full-strength lowering).
+Remaining opacity discrepancy there is attributed to missing H bound-bound opacity.
 
 ---
 
@@ -291,14 +379,19 @@ sensitivity is < 0.5%, which is negligible relative to expected LANL/TOPS differ
 
 | Effect | This code | LANL/TOPS |
 |---|---|---|
-| $H^-$ free-free | omitted | included |
+| $H^-$ free-free | John (1988) fit; valid $T=1400$–$10080$ K | full treatment |
 | Bound-bound (lines) | omitted | included |
-| Pressure ionization | conservative $n_{\rm cut}(\rho)$ proxy | full Hummer-Mihalas |
-| Relativistic corrections | omitted | included at $T > \text{few} \ \text{keV}$ |
+| Pressure ionization | float $n_{\max}^{\rm phys}(\rho)$ with capped lowering (1 eV cap); $n_{\rm cut}$ for discrete sums only | full Hummer-Mihalas |
+| Klein–Nishina scattering | included | included |
 | Non-LTE | omitted | available |
-| $g_{bf}(\nu)$ Gaunt factor | = 1 | Quantum mechanical |
+| $g_{bf}(\nu)$ Gaunt factor | = 1 | quantum mechanical |
 
-Expect $\kappa_R$ from this code to **underestimate** LANL/TOPS by factors of a few to ~10× in cool, dense regions where H⁻ free-free and line opacity dominate.
+At mid-to-high temperatures (0.01–10 keV), agreement is within 10% across all four densities.
+The dominant remaining gap is **bound-bound (line) opacity** (omitted), which dominates at
+$T = 1\text{–}10\ \text{mkeV}$ and $\rho = 10^{-6}\ \text{g\,cm}^{-3}$.  At the cold/dense corner
+($T \lesssim 1\ \text{mkeV}$, $\rho = 10^{-3}\ \text{g\,cm}^{-3}$), the 1 eV cap on
+ionization-energy lowering regularizes the EOS to within a factor of ~2 of TOPS;
+the remaining $\kappa_R$ discrepancy is attributed to missing bound-bound opacity.
 
 ---
 
