@@ -25,7 +25,7 @@ def sigma_kn(nu: float | np.ndarray, const: PhysicalConstants) -> float | np.nda
     For x < 0.05 a 5-term Taylor series is used to avoid catastrophic
     cancellation in the bracket [2x(1+x)/(1+2x) − ln(1+2x)]:
 
-        σ_KN/σ_T ≈ 1 − 2x + (26/5)x² − (133/10)x³ + (1754/105)x⁴ − …
+        σ_KN/σ_T ≈ 1 − 2x + (26/5)x² − (133/10)x³ + (1144/35)x⁴ − …
 
     Parameters
     ----------
@@ -47,13 +47,12 @@ def sigma_kn(nu: float | np.ndarray, const: PhysicalConstants) -> float | np.nda
     high = ~low
 
     # Taylor series (Horner form):
-    # σ/σ_T = 1 - 2x + (26/5)x² - (133/10)x³ + (1754/105)x⁴
-    # Coefficients: 1, -2, 26/5, -133/10, 1754/105
+    # σ/σ_T = 1 - 2x + (26/5)x² - (133/10)x³ + (1144/35)x⁴
     if np.any(low):
         xl = x[low]
         sigma[low] = const.sigma_T * (
             1.0 + xl * (-2.0 + xl * (26.0/5.0 + xl * (-133.0/10.0
-                                      + xl * (1754.0/105.0))))
+                                      + xl * (1144.0/35.0))))
         )
 
     if np.any(high):
