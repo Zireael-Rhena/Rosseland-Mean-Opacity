@@ -168,7 +168,15 @@ $$
 $$
 
 where $x = h\nu / (m_e c^2)$.  Reduces to $\sigma_T$ for $x \to 0$.
-At $x < 0.05$ a 5-term Taylor series is used for numerical stability.
+At $x < 0.05$ a 5-term Taylor series is used for numerical stability:
+
+$$
+    \sigma_{\rm KN}/\sigma_T \approx 1 - 2x + \tfrac{26}{5}x^2 - \tfrac{133}{10}x^3 + \tfrac{1144}{35}x^4
+$$
+
+This is a frequency-dependent **total cross-section** correction only.  It does
+not include Compton energy redistribution, thermal-electron relativistic
+corrections, Kompaneets/Comptonization physics, or line opacity.
 
 ### Free-Free (e-p) Absorption
 
@@ -346,12 +354,12 @@ Domain-internal verification has been completed for the formal domain
 | H⁻ bf domain enforcement (0.754–10 eV) | ✓ Pass |
 | Neutral-H bf threshold positions (float n_max_phys) | ✓ Pass |
 | H⁻ ff: zero outside validity domain; positive at solar T | ✓ Pass |
-| Klein–Nishina: Thomson limit; decreasing at high ν | ✓ Pass |
+| Klein–Nishina: Thomson limit; decreasing at high ν; correct Taylor coefficients; branch continuity | ✓ Pass |
 | No spectral oscillations or numerical spikes | ✓ Pass |
 | x-grid convergence (base vs 4× refined, threshold-refined) | ✓ Pass (<3% at boundary; <1% mid-domain) |
 | n_max sensitivity at T ≥ 0.05 keV | ✓ Negligible (<1 ppm) |
 | float n_max_phys used in all energy-lowering formulas (not n_cut) | ✓ Pass |
-| 158/158 unit tests pass | ✓ |
+| 161/161 unit tests pass | ✓ |
 
 **LANL/TOPS comparison — final production model**
 (H⁻ ff + KN + capped lowering, $\Delta\chi_{\max} = 1.0\ \text{eV}$):
