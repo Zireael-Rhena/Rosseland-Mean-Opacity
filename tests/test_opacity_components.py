@@ -301,6 +301,48 @@ class TestKleinNishina:
         sigs = sigma_kn(nu, const)
         assert np.all(sigs > 0.0)
 
+    def test_low_x_taylor_coefficients(self, const):
+        """Taylor branch matches exact series 1-2x+(26/5)x²-(133/10)x³+(1144/35)x⁴."""
+        m_e_c2 = const.m_e * const.c ** 2   # erg
+        for x_val in [1e-4, 1e-3, 1e-2]:
+            nu = np.array([x_val * m_e_c2 / const.h])
+            ratio = float(sigma_kn(nu, const)[0]) / const.sigma_T
+            ref = (1.0
+                   - 2.0 * x_val
+                   + (26.0 / 5.0)  * x_val**2
+                   - (133.0 / 10.0) * x_val**3
+                   + (1144.0 / 35.0) * x_val**4)
+            assert abs(ratio - ref) < 1e-12, (
+                f"x={x_val}: Taylor ratio={ratio:.15g}, ref={ref:.15g}, "
+                f"err={abs(ratio-ref):.3e}")
+
+    def test_branch_continuity_at_threshold(self, const):
+        """No discontinuous jump at the x=0.05 Taylor/exact branch boundary.
+
+        Straddling x=0.05: fractional discontinuity must be < 0.1% of local σ.
+        """
+        m_e_c2 = const.m_e * const.c ** 2
+
+        def s_of_x(x):
+            return float(sigma_kn(np.array([x * m_e_c2 / const.h]), const)[0])
+
+        s_below = s_of_x(0.04999)   # Taylor branch
+        s_above = s_of_x(0.05001)   # exact branch
+        frac_jump = abs(s_above - s_below) / s_below
+
+        assert frac_jump < 1e-3, (
+            f"Fractional branch jump at x=0.05: {frac_jump:.3e} "
+            f"(s_Taylor={s_below:.6g}, s_exact={s_above:.6g})")
+
+    def test_monotone_suppression(self, const):
+        """σ_KN/σ_T must be strictly decreasing into the mildly relativistic regime."""
+        m_e_c2 = const.m_e * const.c ** 2
+        x_vals = np.array([1e-3, 1e-2, 0.1, 0.3, 1.0])
+        nu_arr  = x_vals * m_e_c2 / const.h
+        ratios  = sigma_kn(nu_arr, const) / const.sigma_T
+        assert np.all(ratios < 1.0), "σ_KN/σ_T must be below 1 for x > 0"
+        assert np.all(np.diff(ratios) < 0), "σ_KN/σ_T must decrease monotonically"
+
 
 class TestFreeFreeHminus:
     def test_zero_outside_temperature_range(self, const):
