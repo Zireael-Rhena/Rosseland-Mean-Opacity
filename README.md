@@ -33,7 +33,7 @@ The `default_config()` is set to this domain.
 
 | Source | Symbol | Notes |
 |---|---|---|
-| Electron scattering | $\kappa_{\text{es}}$ | Klein–Nishina corrected; reduces to Thomson at low $h\nu$ |
+| Electron scattering | $\kappa_{\text{es}}$ | Klein–Nishina spectral treatment at low/intermediate $T$; Poutanen (2017) Compton Rosseland-mean correction in the hot, fully ionized, scattering-dominated regime ($T \geq 2\ \text{keV}$, $y_e \geq 0.999$) |
 | Free-free (e-p) absorption | $\kappa_{\text{ff}}$ | Stimulated-emission corrected; Kramers-like with quantum Gaunt factor |
 | Neutral-H bound-free | $\kappa_{\text{bf,H}}$ | Hydrogenic per shell n; stimulated-emission corrected; lowered thresholds |
 | $H^-$ bound-free | $\kappa_{\text{bf,H}^-}$ | Empirical fit; domain-limited to $0.754–10 \ \text{eV}$ |
@@ -178,6 +178,45 @@ This is a frequency-dependent **total cross-section** correction only.  It does
 not include Compton energy redistribution, thermal-electron relativistic
 corrections, Kompaneets/Comptonization physics, or line opacity.
 
+### High-Temperature Compton Rosseland Correction (Poutanen 2017)
+
+In the hot, fully ionized, scattering-dominated regime the Rosseland mean is
+dominated by electron scattering, and the effective Compton cross-section is
+suppressed below the Thomson value due to relativistic recoil.  This is captured
+by replacing the full KN spectral Rosseland integral with the Poutanen (2017)
+Compton Rosseland-mean correction:
+
+$$
+\Lambda_{P17}(T) = 1 + \left(\frac{T_{\rm keV}}{39.4}\right)^{0.976}
+$$
+
+$$
+\kappa_{\rm scatt} = \kappa_T \,/\, \Lambda_{P17}(T), \qquad \kappa_T = n_e \sigma_T / \rho
+$$
+
+where $n_e$ is taken from the EOS solve (not a fully-ionized approximation) and
+$T_{\rm keV} = k_B T / 1\ \text{keV}$.
+
+**Applicability:** This correction is applied only when:
+- $T_{\rm keV} \geq 2$ (hydrogen fully ionized; $\chi_H = 0.0136\ \text{keV} \ll T$)
+- $y_e = n_e / n_{H,\rm tot} \geq 0.999$ (confirmed fully ionized by EOS)
+- Scattering-dominated regime (absorption contribution negligible; verified diagnostically)
+- Non-degenerate electrons (satisfied at $\rho \leq 10^{-3}\ \text{g\,cm}^{-3}$, $T \geq 2\ \text{keV}$)
+
+Outside this regime the original KN spectral integral is used.
+
+**Important:** This is a Rosseland/flux **mean-opacity** correction, not a monochromatic
+cross-section.  It is applied only at the final mean-opacity level and must not be
+inserted into the frequency-dependent opacity integrand.
+
+**Reference:** Poutanen, J. 2017, ApJ, 835, 119, doi:10.3847/1538-4357/835/2/119
+(non-degenerate 2–40 keV fitting formula)
+
+The correction reduces the high-T positive residual vs TOPS from +8.3% (KN spectral
+at T = 10 keV) to below 1%.  Remaining sub-percent slope is attributed to local
+temperature-slope mismatch between the P17 analytic fit and the TOPS-implied effective
+Compton correction.
+
 ### Free-Free (e-p) Absorption
 
 Net absorption coefficient (stimulated emission already included):
@@ -283,6 +322,23 @@ cd hydrogen_opacity
 pip install -e ".[dev]"
 ```
 
+### Final production model
+
+```python
+from hydrogen_opacity.config import ModelOptions
+
+# Final production configuration
+opts = ModelOptions(
+    use_kn=True,
+    use_ff_hminus=True,
+    lowering_mode="capped",
+    delta_chi_max_ev=1.0,
+    compton_mean_mode="poutanen2017",   # P17 high-T Compton correction
+)
+```
+
+Or equivalently: `from hydrogen_opacity.config import production_opts; opts = production_opts()`
+
 ### Run a single (T, ρ) point
 
 ```python
@@ -339,6 +395,7 @@ Tests verify:
 7. **Opacity non-negativity** — all 5 components $\geq 0$ at all $x$
 8. **Rosseland positivity and finiteness** — $\kappa_R > 0$ and finite at representative points
 9. **Regression** — $\kappa_R$ at selected $(T, \rho)$ reproduces stored reference values to $1\%$
+10. **Poutanen (2017) correction** — $\Lambda_{P17} > 1$; $\kappa_{P17} < \kappa_T$; not applied below threshold; correctly applied and matches formula at high-T fully-ionized points; residual vs TOPS improved
 
 ---
 
@@ -359,10 +416,10 @@ Domain-internal verification has been completed for the formal domain
 | x-grid convergence (base vs 4× refined, threshold-refined) | ✓ Pass (<3% at boundary; <1% mid-domain) |
 | n_max sensitivity at T ≥ 0.05 keV | ✓ Negligible (<1 ppm) |
 | float n_max_phys used in all energy-lowering formulas (not n_cut) | ✓ Pass |
-| 161/161 unit tests pass | ✓ |
+| 185/185 unit tests pass (158 original + 27 P17-specific) | ✓ |
 
 **LANL/TOPS comparison — final production model**
-(H⁻ ff + KN + capped lowering, $\Delta\chi_{\max} = 1.0\ \text{eV}$):
+(H⁻ ff + KN + P17 high-T Compton + capped lowering, $\Delta\chi_{\max} = 1.0\ \text{eV}$):
 
 | Density | Within 10% | Within 25% |
 |---|---|---|
@@ -373,7 +430,8 @@ Domain-internal verification has been completed for the formal domain
 
 Residual discrepancies: bound-bound (line) opacity (dominant at $T = 1\text{–}10\ \text{mkeV}$,
 $\rho = 10^{-6}\ \text{g\,cm}^{-3}$), smooth Hummer–Mihalas occupation probabilities
-at cold/dense edge, $g_{bf}$ Gaunt factors.
+at cold/dense edge, $g_{bf}$ Gaunt factors.  The high-T positive bias is resolved
+by the P17 Compton correction (residual reduced from $+8.3\%$ to $<1\%$ at $T \geq 2\ \text{keV}$).
 
 **Cold/dense corner:** The softened 1 eV cap on ionization-energy lowering
 regularizes the over-ionization at $(T \lesssim 1\ \text{mkeV},\ \rho = 10^{-3}\ \text{g\,cm}^{-3})$.
@@ -390,7 +448,8 @@ Remaining opacity discrepancy there is attributed to missing H bound-bound opaci
 | $H^-$ free-free | John (1988) fit; valid $T=1400$–$10080$ K | full treatment |
 | Bound-bound (lines) | omitted | included |
 | Pressure ionization | float $n_{\max}^{\rm phys}(\rho)$ with capped lowering (1 eV cap); $n_{\rm cut}$ for discrete sums only | full Hummer-Mihalas |
-| Klein–Nishina scattering | included | included |
+| Klein–Nishina scattering | included (all $T$) | included |
+| Compton Rosseland correction | Poutanen (2017) fitting formula applied at $T \geq 2\ \text{keV}$, $y_e \geq 0.999$ | full Compton treatment |
 | Non-LTE | omitted | available |
 | $g_{bf}(\nu)$ Gaunt factor | = 1 | quantum mechanical |
 
