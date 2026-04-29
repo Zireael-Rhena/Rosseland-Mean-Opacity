@@ -22,6 +22,7 @@ from .config import ModelConfig, ModelOptions
 from .grids import build_base_x_grid, refine_x_grid_for_thresholds
 from .eos import solve_eos
 from .opacity import monochromatic_opacity, OpacityComponents
+from .scattering import kappa_scattering_poutanen2017
 
 
 def rosseland_weight(x: float | np.ndarray) -> float | np.ndarray:
@@ -131,6 +132,19 @@ def compute_rosseland_mean(
     -------
     kappa_R : float   [cm² g⁻¹]
     """
+    if opts is None:
+        opts = ModelOptions()
     state = solve_eos(T, rho, n_max, const, tol=tol, opts=opts)
+
+    # Poutanen (2017) high-T Compton Rosseland-mean correction.
+    # Applied only when: compton_mean_mode=="poutanen2017" AND T_keV >= 2.0
+    # AND y_e >= 0.999 (fully ionized).  Falls back to KN spectral otherwise.
+    # This is a mean-opacity correction, NOT a monochromatic cross-section.
+    if opts.compton_mean_mode == "poutanen2017":
+        T_keV = T * const.k_B / (1.0e3 * const.ev_to_erg)
+        y_e = state.n_e / state.n_H_tot
+        if T_keV >= 2.0 and y_e >= 0.999:
+            return kappa_scattering_poutanen2017(T_keV, rho, state.n_e, const)
+
     comp: OpacityComponents = monochromatic_opacity(x, state, const, opts=opts)
     return rosseland_mean_from_spectrum(x, comp.kappa_total)
