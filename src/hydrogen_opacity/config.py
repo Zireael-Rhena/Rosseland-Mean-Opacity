@@ -15,8 +15,8 @@ class ModelOptions:
     """
     Runtime physics toggles for ablation studies.
 
-    All defaults match the production (fully-upgraded) configuration.
-    Set individual flags to False/alternate to isolate physics contributions.
+    All defaults preserve the original KN-spectral behavior for backward
+    compatibility.  Use ``production_opts()`` for the final production model.
 
     Attributes
     ----------
@@ -37,16 +37,34 @@ class ModelOptions:
     delta_chi_max_ev : float
         Maximum ionization-energy lowering [eV] used only when lowering_mode="capped".
         Ignored for all other modes.
+    compton_mean_mode : str
+        Treatment of the electron-scattering Rosseland mean at high temperature.
+        One of:
+          "kn_spectral"    — Full Klein–Nishina spectral Rosseland integral
+                             (applied at all temperatures; the original behavior).
+          "poutanen2017"   — Poutanen (2017) Compton Rosseland-mean correction,
+                             applied only when T_keV >= 2 and the EOS electron
+                             fraction y_e >= 0.999 (hot, fully ionized regime).
+                             Falls back to "kn_spectral" outside that regime.
+                             Reference: Poutanen, J. 2017, ApJ, 835, 119,
+                             doi:10.3847/1538-4357/835/2/119
     """
     use_kn: bool = True
     use_ff_hminus: bool = True
     lowering_mode: str = "full"
     delta_chi_max_ev: float = 1.0   # cap on Δχ used only when lowering_mode="capped"
+    compton_mean_mode: str = "kn_spectral"
 
 
 def production_opts() -> ModelOptions:
-    """All physics on — the verified production configuration."""
-    return ModelOptions()
+    """Final production configuration — all physics on, P17 high-T Compton correction."""
+    return ModelOptions(
+        use_kn=True,
+        use_ff_hminus=True,
+        lowering_mode="capped",
+        delta_chi_max_ev=1.0,
+        compton_mean_mode="poutanen2017",
+    )
 
 
 @dataclass(frozen=True)
