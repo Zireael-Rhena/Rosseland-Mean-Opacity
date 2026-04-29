@@ -2,12 +2,26 @@
 """
 diag_poutanen2017.py
 ====================
-DIAGNOSTIC ONLY — not the adopted production model.
+HISTORICAL DIAGNOSTIC — the P17 correction has been adopted in production.
 
-Tests whether the high-temperature, density-independent positive residual in
-the current production model vs TOPS can be explained by replacing the
-full Klein–Nishina Rosseland-mean scattering integral with the Poutanen (2017)
-Compton Rosseland-mean correction.
+This script originally tested whether the high-temperature, density-independent
+positive residual in the KN-spectral model vs TOPS could be explained by
+replacing the full Klein–Nishina Rosseland-mean scattering integral with the
+Poutanen (2017) Compton Rosseland-mean correction.
+
+The diagnostic confirmed the hypothesis, and the P17 correction is now adopted
+in the final production model:
+
+    ModelOptions(use_kn=True, use_ff_hminus=True,
+                 lowering_mode="capped", delta_chi_max_ev=1.0,
+                 compton_mean_mode="poutanen2017")
+
+The correction is applied only at T_keV >= 2 when y_e >= 0.999.
+See rosseland.compute_rosseland_mean() and scattering.kappa_scattering_poutanen2017()
+for the production implementation.
+
+This script still loads data/final_kR.npz (which now stores P17 results) to
+show the historical comparison against the old KN-spectral model residual.
 
 Physics validity constraints
 -----------------------------
