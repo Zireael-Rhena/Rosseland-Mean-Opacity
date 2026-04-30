@@ -1,5 +1,19 @@
 # Rosseland-Mean Opacity of Pure Hydrogen Gas
 
+Computes the **Rosseland-mean opacity** $\kappa_R(T, \rho)$ of a **pure hydrogen gas**
+in **Local Thermodynamic Equilibrium (LTE)** and benchmarks it against LANL/TOPS
+gray Rosseland-mean opacity tables.
+
+| | |
+|---|---|
+| **Benchmark score** | 238 / 276 grid points (86.2%) within 10% of TOPS |
+| **Tests** | 185 passing |
+| **Domain** | $T = 0.0005$–$10\ \text{keV}$; $\rho = 10^{-12}$–$10^{-3}\ \text{g\,cm}^{-3}$ |
+| **Final model** | `ModelOptions(use_kn=True, use_ff_hminus=True, lowering_mode="capped", delta_chi_max_ev=1.0, compton_mean_mode="poutanen2017")` |
+| **Course** | ASTRON C207 — Radiation Processes in Astronomy, UC Berkeley, Spring 2026 |
+
+---
+
 ## Scientific Objective
 
 Compute the **Rosseland-mean opacity** $\kappa_R(T, \rho)$ of a **pure hydrogen gas** in **Local Thermodynamic Equilibrium (LTE)** over a grid of temperatures and densities relevant to stellar interiors and atmospheres.
@@ -29,6 +43,210 @@ The `default_config()` is set to this domain.
 
 ---
 
+## Installation
+
+Requires **Python ≥ 3.11**.
+
+```bash
+# Clone and enter the repository
+git clone <repo-url>
+cd Rosseland-Mean-Opacity
+
+# Create a virtual environment (recommended)
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+# Install the package (editable) with all dependencies
+pip install -e ".[dev]"
+```
+
+The `.[dev]` extra adds `pytest` for running the test suite.
+The main package installs `numpy`, `scipy`, and `matplotlib` (all required to run
+the benchmark scripts and reproduce figures).
+
+Verify the installation:
+
+```bash
+python -c "import hydrogen_opacity; print('OK')"
+```
+
+---
+
+## Quick Start
+
+### Run the test suite
+
+```bash
+python -m pytest
+```
+
+Expected output: **185 passed**.
+
+### Compute a single opacity point
+
+```python
+from hydrogen_opacity.constants import load_constants
+from hydrogen_opacity.config import default_config, production_opts
+from hydrogen_opacity.grids import build_base_x_grid, refine_x_grid_for_thresholds
+from hydrogen_opacity.rosseland import compute_rosseland_mean
+
+const = load_constants()
+cfg   = default_config()
+opts  = production_opts()          # final production model with P17 correction
+
+T   = 1e7    # K  (≈ 0.86 keV)
+rho = 1e-7   # g cm⁻³
+
+x = refine_x_grid_for_thresholds(build_base_x_grid(cfg), T, cfg.n_max, const)
+kappa_R = compute_rosseland_mean(T, rho, cfg.n_max, x, const,
+                                 tol=cfg.root_tol, opts=opts)
+print(f"κ_R = {kappa_R:.4e} cm² g⁻¹")
+```
+
+To also inspect the spectrum and EOS state, use `run_single_point` (uses default
+`ModelOptions` internally; does not apply the P17 high-T correction):
+
+```python
+from hydrogen_opacity.constants import load_constants
+from hydrogen_opacity.config import default_config
+from hydrogen_opacity.driver import run_single_point
+
+const = load_constants()
+cfg = default_config()
+result = run_single_point(T=1e7, rho=1e-7, cfg=cfg, const=const)
+print(result["kappa_R"], result["eos"])
+```
+
+### Run the full opacity grid
+
+```bash
+python scripts/run_grid.py
+```
+
+Outputs `kappa_R_grid.npz` in the working directory.  Use `--output data/my_grid`
+to specify a path.
+
+---
+
+## Reproduce the Final Benchmark
+
+The following sequence regenerates all final benchmark data and figures from scratch.
+Run all commands from the repository root.
+
+**Step 1 — run the test suite**
+
+```bash
+python -m pytest
+```
+
+**Step 2 — regenerate final benchmark data and figures**
+
+```bash
+python scripts/final_benchmark_figures.py
+```
+
+This script recomputes the full production grid (P17 model), saves results to
+`data/final_kR.npz`, and writes the benchmark figures to `figures/final/`.
+Runtime: approximately 2–5 minutes depending on hardware.
+
+**Step 3 — regenerate slide-friendly figures**
+
+```bash
+python scripts/slides_benchmark_figures.py
+```
+
+Loads `data/final_kR.npz` (no physics recomputation).
+Writes PDF and PNG to `figures/final/slides/`.
+
+**Step 4 — run Poutanen (2017) diagnostic scripts (optional)**
+
+```bash
+python scripts/diag_poutanen2017.py
+python scripts/diag_poutanen2017_extended.py
+```
+
+These scripts reproduce the high-T Compton residual analysis.
+`diag_poutanen2017.py` confirms the P17 correction reduces the high-T bias from
++8.3% to below 1%.  `diag_poutanen2017_extended.py` diagnoses the remaining
+sub-percent slope.
+
+---
+
+## Output Files
+
+| Path | Description |
+|---|---|
+| `data/final_kR.npz` | Production grid: `T_grid`, `rho_grid`, `kR_ours`, `kR_tops` arrays |
+| `data/tops_parsed.npz` | Parsed LANL/TOPS reference opacity table |
+| `data/tops_hydrogen_gray.txt` | Raw LANL/TOPS gray Rosseland-mean opacity (pure H) |
+| `figures/final/benchmark_kR_vs_T.png` | κ_R vs T comparison, 4 densities |
+| `figures/final/benchmark_reldiff_vs_T.png` | Relative difference vs TOPS |
+| `figures/final/benchmark_coldT_zoom.png` | Cold-T / partially-neutral zoom |
+| `figures/final/benchmark_eos_diag.png` | EOS diagnostic (y_e vs TOPS free electrons) |
+| `figures/final/highT_p17_production_comparison.png` | KN spectral vs P17 high-T comparison |
+| `figures/final/slides/` | Slide-ready PDF+PNG versions of all four benchmark panels |
+| `results/final/benchmark_summary.md` | Tabulated benchmark results and qualitative findings |
+| `results/final/benchmark_model_card.md` | Machine-readable model card |
+| `results/final/report_language.md` | Report-ready prose blocks summarizing results |
+
+---
+
+## Model Configuration
+
+### Final production model
+
+```python
+from hydrogen_opacity.config import ModelOptions, production_opts
+
+# Explicit construction:
+opts = ModelOptions(
+    use_kn=True,
+    use_ff_hminus=True,
+    lowering_mode="capped",
+    delta_chi_max_ev=1.0,
+    compton_mean_mode="poutanen2017",
+)
+
+# Convenience factory (identical):
+opts = production_opts()
+```
+
+### Alternative configurations (for comparison)
+
+```python
+# Old KN-spectral mode (no P17 correction; preserved for backward compatibility)
+opts_kn = ModelOptions(
+    use_kn=True,
+    use_ff_hminus=True,
+    lowering_mode="capped",
+    delta_chi_max_ev=1.0,
+    compton_mean_mode="kn_spectral",
+)
+
+# Without H⁻ free-free (to assess its importance in the cold/dense corner)
+opts_no_hff = ModelOptions(
+    use_kn=True,
+    use_ff_hminus=False,
+    lowering_mode="capped",
+    delta_chi_max_ev=1.0,
+    compton_mean_mode="poutanen2017",
+)
+
+# No ionization-energy lowering (Thomson scattering; baseline)
+opts_baseline = ModelOptions(
+    use_kn=False,
+    use_ff_hminus=False,
+    lowering_mode="none",
+    compton_mean_mode="kn_spectral",
+)
+```
+
+`ModelOptions` is a frozen dataclass; all fields are documented in
+[src/hydrogen_opacity/config.py](src/hydrogen_opacity/config.py).
+The `delta_chi_max_ev` parameter is only read when `lowering_mode="capped"`.
+
+---
+
 ## Included Physics
 
 | Source | Symbol | Notes |
@@ -47,6 +265,34 @@ The following are **intentionally omitted** as a controlled project approximatio
 - **Non-LTE effects** — excluded; strict LTE throughout
 - **Full continuum lowering / pressure ionization** — excluded; a step-function level cutoff with ionization-energy lowering is applied as a reduced proxy (see below)
 - **Smooth Hummer–Mihalas occupation probabilities** — not included; the sharp n_cut approximation creates discontinuities at cold/dense conditions
+
+---
+
+## Physical Scope and Limitations
+
+This is a **continuum-focused, LTE-only, pure-hydrogen** opacity code.
+
+**What this code is:**
+- A benchmark-quality implementation of continuum opacity mechanisms for pure hydrogen
+- Useful for studying the relative importance of H⁻ free-free, Klein–Nishina scattering, and Compton corrections at stellar interior conditions
+- Agreement with TOPS over most of the formal domain (86% within 10%)
+
+**What this code is not:**
+- A complete opacity table replacement (bound-bound opacity is omitted)
+- A full reproduction of TOPS (TOPS includes lines, full pressure ionization, non-LTE options)
+- A first-principles dense-plasma EOS (a simple 1D root-find with phenomenological level cutoff)
+- A full Compton redistribution solver (P17 is a Rosseland-mean fitting formula, not a Kompaneets/ETLA solution)
+- Applicable outside pure hydrogen (no helium, no metals)
+
+**High-T Compton correction (P17) caveat:**
+The Poutanen (2017) correction is a Rosseland/flux **mean-opacity** correction.
+It is applied only at the final mean-opacity level and must not be inserted into
+the frequency-dependent opacity integrand.  It is valid for non-degenerate electrons
+at $T \in [2, 40]\ \text{keV}$ and is applied only when $y_e \geq 0.999$.
+
+**Remaining discrepancies:**
+- Partially neutral regime ($T = 1$–$10\ \text{mkeV}$, $\rho = 10^{-6}\ \text{g\,cm}^{-3}$): systematic 30–50% underestimate attributed to missing hydrogen bound-bound (Lyman/Balmer) opacity.
+- Cold/dense corner ($T \lesssim 1\ \text{mkeV}$, $\rho = 10^{-3}\ \text{g\,cm}^{-3}$): agreement within a factor of 1.1–1.5 after adopting the 1 eV cap on ionization-energy lowering; remaining discrepancy attributed to missing bound-bound opacity.
 
 ---
 
@@ -313,75 +559,12 @@ Numerical integration is performed over a refined x-grid (default $x \in [0.01, 
 
 ---
 
-## Run Instructions
-
-### Install
-
-```bash
-cd hydrogen_opacity
-pip install -e ".[dev]"
-```
-
-### Final production model
-
-```python
-from hydrogen_opacity.config import ModelOptions
-
-# Final production configuration
-opts = ModelOptions(
-    use_kn=True,
-    use_ff_hminus=True,
-    lowering_mode="capped",
-    delta_chi_max_ev=1.0,
-    compton_mean_mode="poutanen2017",   # P17 high-T Compton correction
-)
-```
-
-Or equivalently: `from hydrogen_opacity.config import production_opts; opts = production_opts()`
-
-### Run a single (T, ρ) point
-
-```python
-from hydrogen_opacity.constants import load_constants
-from hydrogen_opacity.config import default_config
-from hydrogen_opacity.driver import run_single_point
-
-const = load_constants()
-cfg = default_config()
-result = run_single_point(T=1e4, rho=1e-7, cfg=cfg, const=const)
-print(result)
-```
-
-### Run a full grid
-
-```bash
-python scripts/run_grid.py
-```
-
-### Plot spectra
-
-```bash
-python scripts/plot_spectra.py
-```
-
----
-
-## Output Description
-
-- `kappa_R_grid.npz` — Numpy archive with arrays:
-  - `T_grid` [K]
-  - `rho_grid` [g cm⁻³]
-  - `kappa_R` [cm² g⁻¹], shape (n_T, n_rho)
-  - `kappa_es`, `kappa_ff`, `kappa_bf_H`, `kappa_bf_Hminus` — component contributions
-
----
-
 ## Validation Tests
 
 Run with:
 
 ```bash
-pytest tests/
+python -m pytest
 ```
 
 Tests verify:
@@ -428,6 +611,8 @@ Domain-internal verification has been completed for the formal domain
 | $10^{-6}\ \text{g\,cm}^{-3}$ | 57/69 | 59/69 |
 | $10^{-3}\ \text{g\,cm}^{-3}$ | 50/69 | 62/69 |
 
+**Overall: 238/276 = 86.2% within 10% of TOPS.**
+
 Residual discrepancies: bound-bound (line) opacity (dominant at $T = 1\text{–}10\ \text{mkeV}$,
 $\rho = 10^{-6}\ \text{g\,cm}^{-3}$), smooth Hummer–Mihalas occupation probabilities
 at cold/dense edge, $g_{bf}$ Gaunt factors.  The high-T positive bias is resolved
@@ -438,6 +623,15 @@ regularizes the over-ionization at $(T \lesssim 1\ \text{mkeV},\ \rho = 10^{-3}\
 The electron fraction $y_e$ is now within a factor of 1.6 of the TOPS value at the coldest
 key points, and $\kappa_R$ is within 15–150% (vs.\ 1280% with full-strength lowering).
 Remaining opacity discrepancy there is attributed to missing H bound-bound opacity.
+
+**High-T residual improvement from P17 (all densities):**
+
+| T [keV] | Old KN spectral | P17 production |
+|---------|----------------|----------------|
+| 2 keV | +1.54% | −0.15% |
+| 4 keV | +3.14% | −0.05% |
+| 8 keV | +6.60% | +0.55% |
+| 10 keV | +8.26% | +0.81% |
 
 ---
 
@@ -459,6 +653,71 @@ $T = 1\text{–}10\ \text{mkeV}$ and $\rho = 10^{-6}\ \text{g\,cm}^{-3}$.  At th
 ($T \lesssim 1\ \text{mkeV}$, $\rho = 10^{-3}\ \text{g\,cm}^{-3}$), the 1 eV cap on
 ionization-energy lowering regularizes the EOS to within a factor of ~2 of TOPS;
 the remaining $\kappa_R$ discrepancy is attributed to missing bound-bound opacity.
+
+---
+
+## Reproducibility Note
+
+- All 185 tests pass (`python -m pytest`).
+- The final production benchmark is regenerated by `python scripts/final_benchmark_figures.py`
+  using the P17 production model (`compton_mean_mode="poutanen2017"`).
+- The old KN-spectral mode (`compton_mean_mode="kn_spectral"`) is preserved in the
+  codebase for ablation comparison and is documented in the figures.
+- See [REPRODUCIBILITY.md](REPRODUCIBILITY.md) for step-by-step reproduction instructions
+  and expected output paths.
+
+---
+
+## Code Structure
+
+```
+src/hydrogen_opacity/
+  constants.py       — CGS physical constants (NIST CODATA 2018)
+  config.py          — ModelConfig, ModelOptions, default_config(), production_opts()
+  eos.py             — EOS root-solver (Saha + H⁻ equilibrium, Brent method)
+  grids.py           — Temperature, density, and x-grid construction
+  scattering.py      — Klein–Nishina σ_KN; Poutanen (2017) Compton Rosseland correction
+  free_free.py       — e-p free-free opacity
+  bound_free_h.py    — Neutral-H bound-free photoionization
+  bound_free_hminus.py — H⁻ bound-free photodetachment
+  free_free_hminus.py — H⁻ free-free absorption (John 1988)
+  opacity.py         — Assembly of monochromatic opacity components
+  rosseland.py       — Rosseland mean integration; compute_rosseland_mean()
+  driver.py          — run_single_point(), run_opacity_grid()
+  io_utils.py        — NPZ/CSV grid I/O
+  validation.py      — EOS consistency and opacity non-negativity checks
+
+scripts/
+  run_grid.py                   — Compute full (T, ρ) grid; save to NPZ
+  final_benchmark_figures.py    — Recompute production grid + all final figures
+  slides_benchmark_figures.py   — Slide-ready PDF+PNG from cached data/final_kR.npz
+  diag_poutanen2017.py          — Historical P17 residual diagnostic
+  diag_poutanen2017_extended.py — Extended high-T slope diagnosis
+  plot_spectra.py               — Representative opacity spectra at key (T, ρ) points
+
+tests/
+  test_constants.py         — NIST CODATA sanity checks
+  test_eos.py               — EOS positivity, conservation, and Saha checks
+  test_opacity_components.py — Per-component opacity domain and sign checks
+  test_poutanen2017.py      — 27 P17-specific tests
+  test_regression.py        — Regression: κ_R vs stored reference values
+  test_rosseland.py         — Rosseland integral positivity and finiteness
+```
+
+**Developer notes:**
+- Physics toggles belong in `ModelOptions`; grid parameters belong in `ModelConfig`.
+- To add a new opacity channel: implement it in a new module, add it to `monochromatic_opacity` in `opacity.py`, and add a guard toggle in `ModelOptions`.
+- The P17 correction is applied only in `compute_rosseland_mean` (in `rosseland.py`), after the EOS solve and before (instead of) the spectral integral.  It must not appear inside `monochromatic_opacity` or in the x-grid integrand.
+- `EOS` species: H⁰, p, e⁻, H⁻.  All conservation laws are checked in `validation.py`.
+
+---
+
+## References
+
+- **Poutanen, J. 2017**, ApJ, 835, 119, doi:[10.3847/1538-4357/835/2/119](https://doi.org/10.3847/1538-4357/835/2/119) — Compton Rosseland/flux mean correction formula applied at $T \geq 2$ keV.
+- **John, T. L. 1988**, A&A, 193, 189 — H⁻ free-free opacity empirical fit (Table 3); valid $T \in [1400, 10080]$ K.
+- **Karzas, W. J. & Latter, R. 1961**, ApJS, 6, 167 — Quantum-mechanical free-free Gaunt factors (structure; $g_{bf} = 1$ is used in the present code).
+- **Hummer, D. G. & Mihalas, D. 1988**, ApJ, 331, 794 — Occupation probabilities and pressure ionization (not implemented; cited as the physically correct framework omitted here).
 
 ---
 
